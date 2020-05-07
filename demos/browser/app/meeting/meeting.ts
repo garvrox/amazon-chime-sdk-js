@@ -595,7 +595,7 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
 
   async initializeMeetingSession(configuration: MeetingSessionConfiguration): Promise<void> {
     let logger: Logger;
-    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname === '192.168.1.8') {
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
       logger = new ConsoleLogger('SDK', LogLevel.INFO);
     } else {
       logger = new MeetingSessionPOSTLogger(
