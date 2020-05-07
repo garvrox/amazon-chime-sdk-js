@@ -144,6 +144,7 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
       "amazon-chime-sdk-js@" + Versioning.sdkVersion;
     this.initEventListeners();
     this.initParameters();
+    this.getNearestMediaRegion();
   }
 
   initParameters(): void {
@@ -221,14 +222,15 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
         async (): Promise<void> => {
           this.showProgress('progress-authenticate');
           try {
+            const region = this.region || 'us-east-1';
             const response = await fetch(
-              `${DemoMeetingApp.BASE_URL}join?title=${encodeURIComponent(this.meeting)}&name=${encodeURIComponent(DemoMeetingApp.DID)}&region=${encodeURIComponent(this.region)}`,
+              `${DemoMeetingApp.BASE_URL}join?title=${encodeURIComponent(this.meeting)}&name=${encodeURIComponent(DemoMeetingApp.DID)}&region=${encodeURIComponent(region)}`,
               {
                 method: 'POST',
               }
             );
             const json = await response.json();
-            const joinToken = json.JoinInfo.Attendee.JoinToken;
+            const joinToken = json.JoinInfo.Attendee.Attendee.JoinToken;
             this.sipURI = `sip:${DemoMeetingApp.DID}@${this.voiceConnectorId};transport=tls;X-joinToken=${joinToken}`;
             this.switchToFlow('flow-sip-uri');
           } catch (error) {
@@ -473,6 +475,30 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
     });
   }
 
+  getNearestMediaRegion(): void {
+    const supportedMediaRegions: Array<string> = ['ap-northeast-1', 'ap-southeast-1', 'ap-southeast-2', 'ca-central-1', 'eu-central-1', 'eu-north-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'sa-east-1', 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2'];
+    new AsyncScheduler().start(
+      async (): Promise<void> => {
+        try {
+          const nearestMediaRegionResponse = await fetch(
+            `https://nearest-media-region.l.chime.aws`,
+            {
+              method: 'GET',
+            }
+          );
+          const nearestMediaRegionJSON = await nearestMediaRegionResponse.json();
+          const nearestMediaRegion = nearestMediaRegionJSON.region;
+          if (supportedMediaRegions.indexOf(nearestMediaRegion) !== -1) {
+            (document.getElementById('inputRegion') as HTMLInputElement).value = nearestMediaRegion;
+          } else {
+            throw new Error(`${nearestMediaRegion} doesn't exist`);
+          }
+        } catch (error) {
+          this.log('Default media region selected: ' + error.message);
+        }
+      });
+  }
+
   toggleButton(button: string, state?: 'on' | 'off'): boolean {
     if (state === 'on') {
       this.buttonStates[button] = true;
@@ -697,7 +723,8 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
           attendeeId: string,
           volume: number | null,
           muted: boolean | null,
-          signalStrength: number | null
+          signalStrength: number | null,
+          externalUserId: string,
         ) => {
           if (!this.roster[attendeeId]) {
             this.roster[attendeeId] = { name: '' };
@@ -711,12 +738,7 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
           if (signalStrength !== null) {
             this.roster[attendeeId].signalStrength = Math.round(signalStrength * 100);
           }
-          if (!this.roster[attendeeId].name) {
-            const response = await fetch(`${DemoMeetingApp.BASE_URL}attendee?title=${encodeURIComponent(this.meeting)}&attendee=${encodeURIComponent(attendeeId)}`);
-            const json = await response.json();
-            const name = json.AttendeeInfo.Name;
-            this.roster[attendeeId].name = name ? name : '';
-          }
+          this.roster[attendeeId].name = externalUserId.split('#')[1];
           this.updateRoster();
         }
       );
@@ -1067,13 +1089,12 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
 
   async authenticate(): Promise<string> {
     let joinInfo = (await this.joinMeeting()).JoinInfo;
-    await this.initializeMeetingSession(
-      new MeetingSessionConfiguration(joinInfo.Meeting, joinInfo.Attendee)
-    );
+    const configuration = new MeetingSessionConfiguration(joinInfo.Meeting, joinInfo.Attendee);
+    await this.initializeMeetingSession(configuration);
     const url = new URL(window.location.href);
     url.searchParams.set('m', this.meeting);
     history.replaceState({}, `${this.meeting}`, url.toString());
-    return joinInfo.Meeting.MeetingId;
+    return configuration.meetingId;
   }
 
   log(str: string): void {
@@ -1099,6 +1120,9 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
 
   videoTileDidUpdate(tileState: VideoTileState): void {
     this.log(`video tile updated: ${JSON.stringify(tileState, null, '  ')}`);
+    if (!tileState.boundAttendeeId) {
+      return;
+    }
     const tileIndex = tileState.localTile
       ? 16
       : this.tileOrganizer.acquireTileIndex(tileState.tileId);
@@ -1125,15 +1149,10 @@ export class DemoMeetingApp implements AudioVideoObserver, DeviceChangeObserver 
     this.audioVideo.bindVideoElement(tileState.tileId, videoElement);
     this.tileIndexToTileId[tileIndex] = tileState.tileId;
     this.tileIdToTileIndex[tileState.tileId] = tileIndex;
-    // TODO: enforce roster names
-    new TimeoutScheduler(200).start(() => {
-      const rosterName = this.roster[tileState.boundAttendeeId]
-        ? this.roster[tileState.boundAttendeeId].name
-        : '';
-      if (nameplateElement.innerHTML !== rosterName) {
-        nameplateElement.innerHTML = rosterName;
-      }
-    });
+    const rosterName = tileState.boundExternalUserId.split('#')[1];
+    if (nameplateElement.innerHTML !== rosterName) {
+      nameplateElement.innerHTML = rosterName;
+    }
     tileElement.style.display = 'block';
     this.layoutVideoTiles();
   }

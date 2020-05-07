@@ -8,9 +8,11 @@ import AudioVideoController from '../../src/audiovideocontroller/AudioVideoContr
 import NoOpAudioVideoController from '../../src/audiovideocontroller/NoOpAudioVideoController';
 import DevicePixelRatioMonitor from '../../src/devicepixelratiomonitor/DevicePixelRatioMonitor';
 import DevicePixelRatioObserver from '../../src/devicepixelratioobserver/DevicePixelRatioObserver';
+import TimeoutScheduler from '../../src/scheduler/TimeoutScheduler';
 import NoOpVideoElementFactory from '../../src/videoelementfactory/NoOpVideoElementFactory';
 import DefaultVideoTile from '../../src/videotile/DefaultVideoTile';
 import VideoTileController from '../../src/videotilecontroller/VideoTileController';
+import DOMMockBehavior from '../dommock/DOMMockBehavior';
 import DOMMockBuilder from '../dommock/DOMMockBuilder';
 
 class InvokingDevicePixelRatioMonitor implements DevicePixelRatioMonitor {
@@ -46,12 +48,14 @@ describe('DefaultVideoTile', () => {
   let tileController: VideoTileController;
   let tile: DefaultVideoTile;
   let domMockBuilder: DOMMockBuilder;
+  let domMockBehavior: DOMMockBehavior;
   let tileControllerSpy: sinon.SinonSpy;
   let mockVideoStream: MediaStream;
   let mockVideoTrack: MediaStreamTrack;
 
   beforeEach(() => {
-    domMockBuilder = new DOMMockBuilder();
+    domMockBehavior = new DOMMockBehavior();
+    domMockBuilder = new DOMMockBuilder(domMockBehavior);
     monitor = new InvokingDevicePixelRatioMonitor();
     audioVideoController = new NoOpAudioVideoController();
     tileController = audioVideoController.videoTileController;
@@ -177,6 +181,44 @@ describe('DefaultVideoTile', () => {
       expect(tileControllerSpy.called).to.be.true;
     });
 
+    it('binds a video stream in Safari', done => {
+      domMockBehavior.browserName = 'safari';
+      domMockBuilder = new DOMMockBuilder(domMockBehavior);
+      tile = new DefaultVideoTile(tileId, true, tileController, monitor);
+      const videoElement = videoElementFactory.create();
+      const videoElementSpy = sinon.spy(videoElement, 'play');
+      tile.bindVideoElement(videoElement);
+
+      const boundAttendeeId = 'attendee';
+      const localTile = true;
+      const videoStreamContentWidth = 1;
+      const videoStreamContentHeight = 1;
+      const streamId = 1;
+
+      tile.bindVideoStream(
+        boundAttendeeId,
+        localTile,
+        mockVideoStream,
+        videoStreamContentWidth,
+        videoStreamContentHeight,
+        streamId
+      );
+
+      expect(tile.state().boundAttendeeId).to.equal(boundAttendeeId);
+      expect(tile.state().localTile).to.equal(localTile);
+      expect(tile.state().boundVideoStream).to.equal(mockVideoStream);
+      expect(tile.state().videoStreamContentWidth).to.equal(videoStreamContentWidth);
+      expect(tile.state().videoStreamContentHeight).to.equal(videoStreamContentHeight);
+      expect(tile.state().streamId).to.equal(streamId);
+      expect(tile.state().isContent).to.be.false;
+
+      expect(tileControllerSpy.called).to.be.true;
+      new TimeoutScheduler(10).start(() => {
+        expect(videoElementSpy.calledOnce).to.be.true;
+        done();
+      });
+    });
+
     it('unbinds a video stream', () => {
       tile = new DefaultVideoTile(tileId, true, tileController, monitor);
       tile.bindVideoStream('attendee', true, mockVideoStream, 1, 1, 1);
@@ -193,6 +235,44 @@ describe('DefaultVideoTile', () => {
       expect(tileControllerSpy.called).to.be.true;
     });
 
+    it('unbinds a video stream in Safari', done => {
+      domMockBehavior.browserName = 'safari';
+      domMockBuilder = new DOMMockBuilder(domMockBehavior);
+      tile = new DefaultVideoTile(tileId, true, tileController, monitor);
+      const videoElement = videoElementFactory.create();
+      tile.bindVideoElement(videoElement);
+
+      const boundAttendeeId = 'attendee';
+      const localTile = true;
+      const videoStreamContentWidth = 1;
+      const videoStreamContentHeight = 1;
+      const streamId = 1;
+
+      tile.bindVideoStream(
+        boundAttendeeId,
+        localTile,
+        mockVideoStream,
+        videoStreamContentWidth,
+        videoStreamContentHeight,
+        streamId
+      );
+      tile.bindVideoStream(null, true, null, null, null, null);
+
+      expect(tile.state().boundAttendeeId).to.equal(null);
+      expect(tile.state().localTile).to.equal(true);
+      expect(tile.state().boundVideoStream).to.equal(null);
+      expect(tile.state().videoStreamContentWidth).to.equal(null);
+      expect(tile.state().videoStreamContentHeight).to.equal(null);
+      expect(tile.state().streamId).to.equal(null);
+      expect(tile.state().isContent).to.be.false;
+
+      expect(tileControllerSpy.called).to.be.true;
+      new TimeoutScheduler(10).start(() => {
+        expect(videoElement.srcObject).to.be.null;
+        done();
+      });
+    });
+
     it("does not remove a video element's srcObject again until it binds a new stream", () => {
       tile = new DefaultVideoTile(tileId, true, tileController, monitor);
 
@@ -207,8 +287,43 @@ describe('DefaultVideoTile', () => {
 
       // @ts-ignore
       const mockMediaStream2: MediaStream = new MediaStream();
+      // @ts-ignore
+      mockMediaStream2.addTrack(new MediaStreamTrack('mockMediaStream2', 'video'));
       tile.bindVideoStream('attendee', true, mockMediaStream2, 2, 2, 1);
       expect(videoElement.srcObject).to.equal(mockMediaStream2);
+    });
+  });
+
+  describe('bindVideoStream with externalUserId', () => {
+    it('binds a video stream with externalUser', () => {
+      tile = new DefaultVideoTile(tileId, true, tileController, monitor);
+
+      const boundAttendeeId = 'attendee';
+      const localTile = true;
+      const videoStreamContentWidth = 1;
+      const videoStreamContentHeight = 1;
+      const streamId = 1;
+      const boundExternalUserId = 'external-user-id';
+
+      tile.bindVideoStream(
+        boundAttendeeId,
+        localTile,
+        mockVideoStream,
+        videoStreamContentWidth,
+        videoStreamContentHeight,
+        streamId,
+        boundExternalUserId
+      );
+
+      expect(tile.state().boundAttendeeId).to.equal(boundAttendeeId);
+      expect(tile.state().localTile).to.equal(localTile);
+      expect(tile.state().boundVideoStream).to.equal(mockVideoStream);
+      expect(tile.state().videoStreamContentWidth).to.equal(videoStreamContentWidth);
+      expect(tile.state().videoStreamContentHeight).to.equal(videoStreamContentHeight);
+      expect(tile.state().streamId).to.equal(streamId);
+      expect(tile.state().boundExternalUserId).to.equal(boundExternalUserId);
+      expect(tile.state().isContent).to.be.false;
+      expect(tileControllerSpy.called).to.be.true;
     });
   });
 
@@ -277,7 +392,7 @@ describe('DefaultVideoTile', () => {
       expect(setAttributeSpy.callCount).to.equal(0);
     });
 
-    it('disables picture-in-picture and remote playback on local tiles', () => {
+    it('disables picture-in-picture and remote playback and mirror on local tiles', () => {
       tile = new DefaultVideoTile(tileId, true, tileController, monitor);
       const videoElement = videoElementFactory.create();
       // @ts-ignore
@@ -290,6 +405,29 @@ describe('DefaultVideoTile', () => {
       expect(videoElement.disablePictureInPicture).to.be.true;
       // @ts-ignore
       expect(videoElement.disableRemotePlayback).to.be.true;
+      expect(videoElement.style.transform).to.eq('rotateY(180deg)');
+    });
+
+    it('do not mirror local video for rear-facing camera', () => {
+      domMockBehavior.mediaStreamTrackSettings = {
+        width: 640,
+        height: 480,
+        deviceId: 'testCamera',
+        facingMode: 'environment',
+      };
+      tile = new DefaultVideoTile(tileId, true, tileController, monitor);
+      const videoElement = videoElementFactory.create();
+      // @ts-ignore
+      videoElement.disablePictureInPicture = false;
+      // @ts-ignore
+      videoElement.disableRemotePlayback = false;
+      tile.bindVideoElement(videoElement);
+      tile.bindVideoStream('attendee', true, mockVideoStream, 1, 1, 1);
+      // @ts-ignore
+      expect(videoElement.disablePictureInPicture).to.be.true;
+      // @ts-ignore
+      expect(videoElement.disableRemotePlayback).to.be.true;
+      expect(videoElement.style.transform).to.be.empty;
     });
   });
 

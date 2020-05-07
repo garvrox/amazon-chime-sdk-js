@@ -1,6 +1,7 @@
 // Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+import DefaultBrowserBehavior from '../browserbehavior/DefaultBrowserBehavior';
 import DevicePixelRatioMonitor from '../devicepixelratiomonitor/DevicePixelRatioMonitor';
 import DevicePixelRatioObserver from '../devicepixelratioobserver/DevicePixelRatioObserver';
 import DefaultModality from '../modality/DefaultModality';
@@ -17,7 +18,10 @@ export default class DefaultVideoTile implements DevicePixelRatioObserver, Video
     videoElement: HTMLVideoElement,
     localTile: boolean
   ): void {
-    const transform = localTile ? 'rotateY(180deg)' : '';
+    const transform =
+      localTile && videoStream.getVideoTracks()[0].getSettings().facingMode !== 'environment'
+        ? 'rotateY(180deg)'
+        : '';
 
     DefaultVideoTile.setVideoElementFlag(videoElement, 'disablePictureInPicture', localTile);
     DefaultVideoTile.setVideoElementFlag(videoElement, 'disableRemotePlayback', localTile);
@@ -42,6 +46,12 @@ export default class DefaultVideoTile implements DevicePixelRatioObserver, Video
 
     if (videoElement.srcObject !== videoStream) {
       videoElement.srcObject = videoStream;
+    }
+
+    if (new DefaultBrowserBehavior().requiresVideoElementWorkaround()) {
+      new AsyncScheduler().start(async () => {
+        await videoElement.play();
+      });
     }
   }
 
@@ -77,9 +87,13 @@ export default class DefaultVideoTile implements DevicePixelRatioObserver, Video
 
       // Need to yield the message loop before clearing `srcObject` to
       // prevent Safari from crashing.
-      new AsyncScheduler().start(() => {
+      if (new DefaultBrowserBehavior().requiresVideoElementWorkaround()) {
+        new AsyncScheduler().start(() => {
+          videoElement.srcObject = null;
+        });
+      } else {
         videoElement.srcObject = null;
-      });
+      }
     }
   }
 
@@ -131,7 +145,8 @@ export default class DefaultVideoTile implements DevicePixelRatioObserver, Video
     mediaStream: MediaStream | null,
     contentWidth: number | null,
     contentHeight: number | null,
-    streamId: number | null
+    streamId: number | null,
+    externalUserId?: string
   ): void {
     let tileUpdated = false;
     if (this.tileState.boundAttendeeId !== attendeeId) {
@@ -139,6 +154,10 @@ export default class DefaultVideoTile implements DevicePixelRatioObserver, Video
       if (new DefaultModality(attendeeId).hasModality(DefaultModality.MODALITY_CONTENT)) {
         this.tileState.isContent = true;
       }
+      tileUpdated = true;
+    }
+    if (this.tileState.boundExternalUserId !== externalUserId) {
+      this.tileState.boundExternalUserId = externalUserId;
       tileUpdated = true;
     }
     if (this.tileState.localTile !== localTile) {
