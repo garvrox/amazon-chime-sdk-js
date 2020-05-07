@@ -1,5 +1,5 @@
 const { spawnSync } = require('child_process');
-const fs = require("fs");
+const fs = require('fs-extra');
 const path = require("path");
 
 // Parameters
@@ -8,6 +8,12 @@ let bucket = ``;
 let stack = ``;
 let app = `meeting`;
 let useEventBridge = false;
+
+const packages = [
+  // Use latest AWS SDK instead of default version provided by Lambda runtime
+  'aws-sdk',
+  'uuid',
+];
 
 function usage() {
   console.log(`Usage: deploy.sh [-r region] [-b bucket] [-s stack] [-a application] [-e]`);
@@ -80,12 +86,16 @@ function parseArgs() {
 }
 
 function spawnOrFail(command, args, options) {
+  options = {
+    ...options,
+    shell: true
+  };
   const cmd = spawnSync(command, args, options);
   if (cmd.error) {
     console.log(`Command ${command} failed with ${cmd.error.code}`);
     process.exit(255);
   }
-  const output=cmd.output.toString();
+  const output = cmd.stdout.toString();
   console.log(output);
   if (cmd.status !== 0) {
     console.log(`Command ${command} failed with exit code ${cmd.status} signal ${cmd.signal}`);
@@ -109,14 +119,12 @@ function ensureApp(appName) {
     console.log(`Application ${appHtml(appName)} does not exist. Rebuilding demo apps`);
     spawnOrFail('npm', ['run', 'build', `--app=${appName}`], {cwd: path.join(__dirname, '..', 'browser')});
   }
-
-  // TODO: remove this once AWS Lambda Node.js runtime includes the Chime APIs
-  spawnOrFail('npm', ['install', '--production'], {cwd: path.join(__dirname, '..', 'browser', 'node_modules', 'aws-sdk')});
 }
 
 function ensureTools() {
   spawnOrFail('aws', ['--version']);
   spawnOrFail('sam', ['--version']);
+  spawnOrFail('npm', ['install']);
 }
 
 parseArgs();
@@ -133,13 +141,15 @@ if (!fs.existsSync('build')) {
 console.log(`Using region ${region}, bucket ${bucket}, stack ${stack}`);
 ensureBucket();
 
-  // TODO: remove this once AWS Lambda Node.js runtime includes the Chime APIs
-spawnOrFail('cp', ['-Rp', path.join(__dirname, '..', 'browser', 'node_modules', 'aws-sdk'), 'src']);
+for (const package of packages) {
+  spawnOrFail('npm', ['install', '--production'], {cwd: path.join(__dirname, 'node_modules', package)});
+  fs.removeSync(path.join(__dirname, 'src', package));
+  fs.copySync(path.join(__dirname, 'node_modules', package), path.join(__dirname, 'src', package));
+}
 
-spawnOrFail('cp', [appHtml(app), 'src/index.html']);
-
+fs.copySync(appHtml(app), 'src/index.html');
 if (app === 'meeting') {
-  spawnOrFail('cp', [appHtml('meetingV2'), 'src/indexV2.html']);
+  fs.copySync(appHtml('meetingV2'), 'src/indexV2.html');
 }
 
 spawnOrFail('sam', ['package', '--s3-bucket', `${bucket}`,

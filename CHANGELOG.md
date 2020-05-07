@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Add bandwidth policy to meeting session configuration to allow overriding default policies
+- Add more content sharing integration tests
+- Add gifs to read me file to show latest npm version and downloads
+- Add method to get the nearest media region
+- Display meeting and attendee IDs in the demo
+
+### Changed
+- Simplify meeting demos to leverage externalUserId in roster
+- Update PR template to add testing information
+- Support a mobile-friendly demo
+- Increase the size of content share video tile for the demo app in small screen
+- Update reconnection parameters in ConnectionHealthPolicyConfiguration
+
+### Removed
+- Remove unused VideoAdaptiveSubscribePolicy
+
+### Fixed
+- Fix serverless deploy script to work on Windows
+- Clean up and fix serverless package bundling
+- Do not mirror local video for rear-facing camera
+- Fix sip url for meeting demo
+- Fix local video freeze in Safari after toggling off and on
+- Fix meeting demo content share turning off on attendee join
+- Disable audio sample constraints when not using WebAudio
+- Reset Sauce Lab session to make sure clean state
+- Fix integration test emit metrics
+- Fix the CloudWatch log handler
+
+### Security
+- Bump package-lock.json jquery to 3.5.0 and yargs-parser to 18.1.3
+
 ## [1.4.0] - 2020-04-24
 
 ### Added
